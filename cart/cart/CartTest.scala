@@ -12,7 +12,7 @@ object CartSystem {
   def apply() = new CartSystem;
 }
 
-trait Pricaeble {
+trait Priceable {
   def itemCode: ItemCode
   def unitPrice: CartSystem.Currency
 }
@@ -28,22 +28,22 @@ class CartSystem {
       val id = "orange"
     }
     
-    private[cart] case object Apple extends Pricaeble {
+    private[cart] case object Apple extends Priceable {
       val itemCode = AppleCode
       val unitPrice = 60
     }
-    private[cart] case object Orange extends Pricaeble {
+    private[cart] case object Orange extends Priceable {
       val itemCode = OrangeCode
       val unitPrice = 25
     }
     
-    private val items = Map[ItemCode,Pricaeble](Apple.itemCode -> Apple, Orange.itemCode -> Orange)
+    private val items = Map[ItemCode,Priceable](Apple.itemCode -> Apple, Orange.itemCode -> Orange)
     
     def lookup(item: ItemCode) = items get item
-    def availalble: Seq[ItemCode] = items.map( _._1).toSeq
+    def available: Seq[ItemCode] = items.map( _._1).toSeq
   }
   
-  class Session private(val items: List[Pricaeble]) {
+  class Session private(val items: List[Priceable]) {
     
     def this() = this(Nil)
     
@@ -55,36 +55,81 @@ class CartSystem {
     }
   }
   
+  private object Billing {
+    def apply() = new Billing
+  }
+  
+  private class Billing private(private val items: Map[Priceable, Int]) {
+        private def this() = this(Map())  
+    
+    def appendItem(item: Priceable): Billing = new Billing( items.updated(item, items.getOrElse(item, 0) + 1) )
+    def total: CartSystem.Currency = {
+          items.foldLeft(0)( (sum,p) => p match {
+            // the below can be reduced to a single formula "sum + ( (num / divisor) * (divisor-1) + (num%divisor))* unitPrice
+            // but that wouldn't scale much
+              case (Registry.Apple, num) => sum + ((num / 2).toInt + (num & 1)) * Registry.Apple.unitPrice  
+              case (Registry.Orange, num) => sum + ((num / 3).toInt * 2 + (num % 3)) * Registry.Orange.unitPrice 
+          })
+        }
+  }
+  
   def session = new Session
   def checkout(s: Session): CartSystem.Currency = {
-    s.items.map { _.unitPrice } sum
+    val billing = s.items.foldLeft( Billing() )((b,item)=> b.appendItem(item))
+    billing.total
   }
   
 }
-
+// to minimize deps and complexity no juint
 object CartTest extends App {
   
   def test1 = {
     
     val cart = CartSystem()
-    
-    var sess1 = cart.session
-    assert(0 == cart.checkout(sess1))
-    
-    var sess2 = cart.session
-    assert(0 == cart.checkout(sess2))
+    def doTst(items: Seq[ItemCode] ) {
+      
+      val sess1 = cart.session
+      assert(0 == cart.checkout(sess1))
+      
+      val f = ( p: (Map[Priceable, Int], cart.Session) ) => {
+          val it1 = cart.Registry.available( Random.nextInt( cart.Registry.available.size  ) )
 
-    val f = ( p: (CartSystem.Currency, cart.Session) ) => {
-        val it1 = cart.Registry.availalble( Random.nextInt( cart.Registry.availalble.size  ) )
-        val found = cart.Registry.lookup(it1)
-        assert( found.isDefined )
-        (p._1 + found.get.unitPrice, p._2.addItem(it1))
+        }
+      
+      val (itemMap, sess) = items.foldLeft( (Map[Priceable, Int](), sess1) )((p, item)=> {
+          val found = cart.Registry.lookup(item)
+          assert( found.isDefined )
+          (p._1.updated(found.get, 1 + p._1.getOrElse(found.get, 0) ), p._2.addItem(item))
+      })
+      
+      val apples = itemMap.getOrElse(cart.Registry.Apple, 0)
+      val oranges = itemMap.getOrElse(cart.Registry.Orange, 0)
+      val sum = ((apples / 2).toInt + (apples & 1)) * cart.Registry.Apple.unitPrice + 
+                ((oranges / 3).toInt * 2 + (oranges % 3)) * cart.Registry.Orange.unitPrice 
+      assert(sum == cart.checkout(sess)) 
+    }
+    
+    for (apples <- 0 to 11) {
+      for (oranges <- 0 to 11) {
+        doTst( Random.shuffle(Iterator.range(0, apples).map(_=> cart.Registry.AppleCode ).toSeq ++  
+                Iterator.range(0, oranges).map(_=> cart.Registry.OrangeCode ) ))
       }
-    
-    val res = Iterator.range(0, 5).foldLeft( ((0, sess1), (0, sess2) ))((p, _)=> ( f(p._1), f(p._2) ) )
-    
-    Seq(res._1, res._2).foreach {p => assert(p._1 == cart.checkout(p._2)) }
+    }
+    println("Tests OK")  
+  }
+  
+  def negative {
+    val res = try {
+      CartSystem().session.addItem( new ItemCode { val id = "plum" } )
+      false
+    } catch {
+      case e:IllegalArgumentException => true
+      case _:Throwable => false
+    }
+    assert(res)
   }
   
   test1
+  negative
+  
 }
