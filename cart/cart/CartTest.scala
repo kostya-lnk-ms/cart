@@ -67,8 +67,8 @@ class CartSystem {
           items.foldLeft(0)( (sum,p) => p match {
             // the below can be reduced to a single formula "sum + ( (num / divisor) * (divisor-1) + (num%divisor))* unitPrice
             // but that wouldn't scale much
-              case (Registry.Apple, num) => sum + ((num / 2).toInt + (num & 1)) * Registry.Apple.unitPrice  
-              case (Registry.Orange, num) => sum + ((num / 3).toInt * 2 + (num % 3)) * Registry.Orange.unitPrice 
+              case (Registry.Apple, num) => sum + ((num / 2) + (num & 1)) * Registry.Apple.unitPrice  
+              case (Registry.Orange, num) => sum + ((num / 3) * 2 + (num % 3)) * Registry.Orange.unitPrice 
           })
         }
   }
@@ -80,7 +80,7 @@ class CartSystem {
   }
   
 }
-// to minimize deps and complexity no juint
+// to minimize deps and complexity no juint used
 object CartTest extends App {
   
   def test1 = {
@@ -91,21 +91,18 @@ object CartTest extends App {
       val sess1 = cart.session
       assert(0 == cart.checkout(sess1))
       
-      val f = ( p: (Map[Priceable, Int], cart.Session) ) => {
-          val it1 = cart.Registry.available( Random.nextInt( cart.Registry.available.size  ) )
-
-        }
-      
       val (itemMap, sess) = items.foldLeft( (Map[Priceable, Int](), sess1) )((p, item)=> {
           val found = cart.Registry.lookup(item)
           assert( found.isDefined )
           (p._1.updated(found.get, 1 + p._1.getOrElse(found.get, 0) ), p._2.addItem(item))
       })
       
-      val apples = itemMap.getOrElse(cart.Registry.Apple, 0)
-      val oranges = itemMap.getOrElse(cart.Registry.Orange, 0)
-      val sum = ((apples / 2).toInt + (apples & 1)) * cart.Registry.Apple.unitPrice + 
-                ((oranges / 3).toInt * 2 + (oranges % 3)) * cart.Registry.Orange.unitPrice 
+      val sum = Seq((cart.Registry.Apple, 2), (cart.Registry.Orange, 3)).map {
+        case (item, factor) =>
+          val q = itemMap.getOrElse(item, 0) 
+           ((q / factor) * (factor - 1) + q % factor) * item.unitPrice
+      }.sum
+
       assert(sum == cart.checkout(sess)) 
     }
     
@@ -118,7 +115,7 @@ object CartTest extends App {
     println("Tests OK")  
   }
   
-  def negative {
+  def negativeTest {
     val res = try {
       CartSystem().session.addItem( new ItemCode { val id = "plum" } )
       false
@@ -130,6 +127,6 @@ object CartTest extends App {
   }
   
   test1
-  negative
+  negativeTest
   
 }
